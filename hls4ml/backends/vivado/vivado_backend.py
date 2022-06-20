@@ -7,7 +7,7 @@ from queue import Queue
 from collections.abc import Iterable
 
 from hls4ml.model.types import FixedPrecisionType, NamedType, IntegerPrecisionType
-from hls4ml.model.layers import Layer, Dense, BatchNormalization, Embedding, Conv1D, Conv2D, Conv2DBatchnorm, SeparableConv1D, SeparableConv2D, DepthwiseConv2D, Activation, ParametrizedActivation, PReLU, Softmax, Pooling1D, Pooling2D, GlobalPooling1D, GlobalPooling2D, ZeroPadding1D, ZeroPadding2D, Merge, Concatenate, Dot, Resize, Transpose, SimpleRNN, LSTM, GRU, GarNet, GarNetStack
+from hls4ml.model.layers import Layer, Dense, BatchNormalization, Embedding, Conv1D, Conv1DTranspose, Conv2D, Conv2DBatchnorm, SeparableConv1D, SeparableConv2D, DepthwiseConv2D, Activation, ParametrizedActivation, PReLU, Softmax, Pooling1D, Pooling2D, GlobalPooling1D, GlobalPooling2D, ZeroPadding1D, ZeroPadding2D, Merge, Concatenate, Dot, Resize, Transpose, SimpleRNN, LSTM, GRU, GarNet, GarNetStack
 from hls4ml.model.attributes import Attribute
 from hls4ml.model.optimizer import get_backend_passes, layer_optimizer, model_optimizer
 from hls4ml.model.flow import register_flow
@@ -153,6 +153,18 @@ class VivadoBackend(FPGABackend):
         if layer.model.config.is_resource_strategy(layer):
             layer.set_attr('strategy', 'resource')
             n_in, n_out = self.get_layer_mult_size(layer)
+            self.set_target_reuse_factor(layer)
+            self.set_closest_reuse_factor(layer, n_in, n_out)
+        else:
+            layer.set_attr('strategy', 'latency')
+        
+        layer.set_attr('implementation', layer.model.config.get_conv_implementation(layer).lower())
+
+    @layer_optimizer(Conv1DTranspose)
+    def init_conv1dtranspose(self, layer):
+        if layer.model.config.is_resource_strategy(layer):
+            layer.set_attr('strategy', 'resource')
+            n_in, n_out = self.get_layer_mult_size(layter)
             self.set_target_reuse_factor(layer)
             self.set_closest_reuse_factor(layer, n_in, n_out)
         else:

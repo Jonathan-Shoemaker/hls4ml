@@ -336,6 +336,40 @@ class Conv1D(Layer):
         self.add_weights(quantizer = self.get_attr('weight_quantizer'))
         self.add_bias(quantizer = self.get_attr('bias_quantizer'))
 
+class Conv1DTranspose(Layer):
+    _expected_attributes = [
+        Attribute('in_width'),
+        Attribute('out_width'),
+
+        Attribute('n_chan'),
+        Attribute('n_filt'),
+
+        Attribute('filt_width'),
+        Attribute('stride_width'),
+
+        Attribute('pad_left'),
+        Attribute('pad_right'),
+
+        WeightAttribute('weight'),
+        WeightAttribute('bias'),
+
+        TypeAttribute('weight'),
+        TypeAttribute('bias'),
+    ]
+
+    def initialize(self):
+        if self.get_attr('data_format') == 'channels_last':
+            shape = [self.attributes['out_width'], self.attributes['n_filt']]
+            dims = ['N_OUTPUTS_{}'.format(self.index), 'N_FILT_{}'.format(self.index)]
+        else:
+            shape = [self.attributes['n_filt'], self.attributes['out_width']]
+            dims = ['N_FILT_{}'.format(self.index), 'N_OUTPUTS_{}'.format(self.index)]
+
+        self.add_output_variables(shape, dims)
+        self.add_weights(quantizer = self.get_attr('weight_quantizer'))
+        self.add_bias(quantizer = self.get_attr('bias_quantizer'))
+
+
 class SeparableConv1D(Layer):
     _expected_attributes = [
         Attribute('in_width'),
@@ -1142,6 +1176,7 @@ layer_map = {
     'QDense'                 : Dense,
     'Conv1D'                 : Conv1D,
     'QConv1D'                : Conv1D,
+    'Conv1DTranspose'        : Conv1DTranspose,
     'Conv2D'                 : Conv2D,
     'BinaryConv2D'           : Conv2D,
     'QConv2D'                : Conv2D,
