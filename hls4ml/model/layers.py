@@ -365,7 +365,7 @@ class Conv1DTranspose(Layer):
             shape = [self.attributes['n_filt'], self.attributes['out_width']]
             dims = ['N_FILT_{}'.format(self.index), 'N_OUTPUTS_{}'.format(self.index)]
 
-        self.add_output_variables(shape, dims)
+        self.add_output_variable(shape, dims)
         self.add_weights(quantizer = self.get_attr('weight_quantizer'))
         self.add_bias(quantizer = self.get_attr('bias_quantizer'))
 

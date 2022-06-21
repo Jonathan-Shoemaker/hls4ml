@@ -30,7 +30,7 @@ struct conv1dtranspose_config
     static const unsigned n_zeros = 0;
 };
 
-template<class data_T, class res_t, typename CONFIG_T>
+template<class data_T, class res_T, typename CONFIG_T>
 void conv_1d_transpose_cl(
     data_T data[CONFIG_T::in_width * CONFIG_T::n_chan],
     res_T res[CONFIG_T::out_width * CONFIG_T::n_filt],

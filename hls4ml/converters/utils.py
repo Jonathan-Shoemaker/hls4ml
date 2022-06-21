@@ -37,6 +37,21 @@ def compute_padding_1d(pad_type, in_size, stride, filt_size):
 
     return (n_out, pad_left, pad_right)
 
+def compute_padding_1d_transpose(pad_type, in_size, stride, filt_size):
+    if pad_type.lower() == 'same':
+        n_out = stride*in_size
+        pad_along_size = max(filt_size-stride, 0)
+        pad_left = pad_along_size//2
+        pad_right = pad_along_size-pad_left
+    elif pad_type.lower() == 'valid':
+        n_out = stride*(in_size-1) + filt_size
+        pad_left = 0
+        pad_right = 0
+    else:
+        raise Exception('Unknown padding type: {}'.format(pad_type))
+
+    return (n_out, pad_left, pad_right)
+
 def compute_padding_2d(pad_type, in_height, in_width, stride_height, stride_width, filt_height, filt_width):
     if pad_type.lower() == 'same':
         #Height
