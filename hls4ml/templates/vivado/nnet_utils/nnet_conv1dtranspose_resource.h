@@ -74,24 +74,44 @@ void conv_1d_transpose_resource_cl(
     typename CONFIG_T::bias_t   biases[CONFIG_T::n_filt]
 )
 {
-    //for now, just implement the dumbest thing you can think of I guess
-    //just try to make it work / see what happens
-    for (int ind = 0; ind < CONFIG_T::out_width * CONFIG_T::n_filt; ind++) {
-        res[ind] = ind;
+    
+    //for now, maybe just implement straight-up matrix multiplication?
+    //    -> makes sure the weights and kernel are set up as we expect, then we can proceed with debugging
+    //    -> implements some of our indexing logic (should help debug)
+    //    -> indexing may be more difficult than I first thought
+    int start_index = 0;
+    for (int i = CONFIG_T::pad_left; i < CONFIG_T::out_width+CONFIG_T::pad_left; i++) {
+        if (i > start_index * CONFIG_T::stride_width + CONFIG_T::filt_width-1) {
+            start_index++;
+        }
+        int weight_start = i - CONFIG_T::stride_width*start_index;
+        int cur_filt_width = weight_start / CONFIG_T::stride_width + 1;
+        cur_filt_width = MIN(cur_filt_width, CONFIG_T::in_width-start_index);
+        for (int j = 0; j < CONFIG_T::n_filt; j++) {
+            //compute this output cell
+            int cur_ind = (i-CONFIG_T::pad_left) * CONFIG_T::n_filt + j;
+            res[cur_ind] = 0;
+            for (int k = 0; k < CONFIG_T::n_chan; k++) {
+                for (int ki = 0; ki < cur_filt_width; ki++) {
+                    int filt_ind = weight_start - ki * CONFIG_T::stride_width;
+                    res[cur_ind] += data[(start_index + ki) * CONFIG_T::n_chan + k] * 
+                        weights[filt_ind*CONFIG_T::n_chan*CONFIG_T::n_filt + k * CONFIG_T::n_filt + j];
+                }
+            }
+        }
     }
 
     return;
-
 
     data_T data_col[CONFIG_T::filt_width * CONFIG_T::n_chan];
     res_T res_col[CONFIG_T::n_filt];
     typename CONFIG_T::weight_t row_weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt];
     //loop over the output cells, compute each one separately
     
-    int start_index = 0;
+    start_index = 0;
 
     ColLoop:
-    for (int out_ind = CONFIG_T::pad_left; out_ind < CONFIG_T::out_width-CONFIG_T::pad_left; out_ind++) {
+    for (int out_ind = CONFIG_T::pad_left; out_ind < CONFIG_T::out_width + CONFIG_T::pad_left; out_ind++) {
         //corresponds to res_col index out_ind - pad_left
         if (out_ind > start_index*CONFIG_T::stride_width + CONFIG_T::filt_width - 1) {
            start_index++;
