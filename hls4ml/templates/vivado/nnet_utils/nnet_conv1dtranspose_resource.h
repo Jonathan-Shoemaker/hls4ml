@@ -18,7 +18,7 @@ namespace nnet{
 template<typename CONFIG_T>
 void weights_trim(
     typename CONFIG_T::weight_t weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt],
-    typename CONFIG_T::weight_t row_weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt],
+    typename CONFIG_T::weight_t row_weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan],
     const int weight_start,
     const int cur_filt_width
 )
@@ -26,16 +26,20 @@ void weights_trim(
     int row_index = weight_start;
     KernelLoop:
     for (int step = 0; step < cur_filt_width; step++) {
-        for (int inner_ind = 0; inner_ind < CONFIG_T::n_chan * CONFIG_T::n_filt; inner_ind++) {
-            row_weights[step * CONFIG_T::n_chan * CONFIG_T::n_filt + inner_ind] = 
-                weights[row_index * CONFIG_T::n_chan * CONFIG_T::n_filt + inner_ind];
+        for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
+            for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
+                row_weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + step * CONFIG_T::n_chan + chan_ind] = 
+                    weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + row_index * CONFIG_T::n_chan + chan_ind];
+            }
         }
         row_index -= CONFIG_T::stride_width;
     }
     ZeroLoop:
-    for (int step = 0; step < CONFIG_T::filt_width-cur_filt_width; step++) {
-        for (int inner_ind = 0; inner_ind < CONFIG_T::n_chan * CONFIG_T::n_filt; inner_ind++) {
-            row_weights[step * CONFIG_T::n_chan * CONFIG_T::n_filt + inner_ind] = 0;
+    for (int step = cur_filt_width; step < CONFIG_T::filt_width; step++) {
+        for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
+            for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
+                row_weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + step * CONFIG_T::n_chan + chan_ind] = 0;
+            }
         }
     }
 }
@@ -51,18 +55,17 @@ void im2col_start_width(
     int index = 0;
     KernelLoop:
     for (int kernel_col = 0; kernel_col < cur_filt_width; kernel_col++) {
-
         ChannelLoop:
         for (int channel = 0; channel < CONFIG_T::n_chan; channel++) {
-            data_col[index] =  (start_index + kernel_col) * CONFIG_T::n_chan + channel;
+            data_col[index] =  data[(start_index + kernel_col) * CONFIG_T::n_chan + channel];
+            index++;
         }
-        index++;
     }
     for (int kernel_col = cur_filt_width; kernel_col < CONFIG_T::filt_width; kernel_col++) {   
         for (int channel = 0; channel < CONFIG_T::n_chan; channel++) {
             data_col[index] = 0;
+            index++;
         }
-        index++;
     }
 }
 
@@ -70,45 +73,17 @@ template<class data_T, class res_T, typename CONFIG_T>
 void conv_1d_transpose_resource_cl(
     data_T data[CONFIG_T::in_width * CONFIG_T::n_chan],
     res_T res[CONFIG_T::out_width  * CONFIG_T::n_filt],
-    typename CONFIG_T::weight_t weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt],
+    typename CONFIG_T::weight_t weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan],
     typename CONFIG_T::bias_t   biases[CONFIG_T::n_filt]
 )
-{
-    
-    //for now, maybe just implement straight-up matrix multiplication?
-    //    -> makes sure the weights and kernel are set up as we expect, then we can proceed with debugging
-    //    -> implements some of our indexing logic (should help debug)
-    //    -> indexing may be more difficult than I first thought
-    int start_index = 0;
-    for (int i = CONFIG_T::pad_left; i < CONFIG_T::out_width+CONFIG_T::pad_left; i++) {
-        if (i > start_index * CONFIG_T::stride_width + CONFIG_T::filt_width-1) {
-            start_index++;
-        }
-        int weight_start = i - CONFIG_T::stride_width*start_index;
-        int cur_filt_width = weight_start / CONFIG_T::stride_width + 1;
-        cur_filt_width = MIN(cur_filt_width, CONFIG_T::in_width-start_index);
-        for (int j = 0; j < CONFIG_T::n_filt; j++) {
-            //compute this output cell
-            int cur_ind = (i-CONFIG_T::pad_left) * CONFIG_T::n_filt + j;
-            res[cur_ind] = 0;
-            for (int k = 0; k < CONFIG_T::n_chan; k++) {
-                for (int ki = 0; ki < cur_filt_width; ki++) {
-                    int filt_ind = weight_start - ki * CONFIG_T::stride_width;
-                    res[cur_ind] += data[(start_index + ki) * CONFIG_T::n_chan + k] * 
-                        weights[filt_ind*CONFIG_T::n_chan*CONFIG_T::n_filt + k * CONFIG_T::n_filt + j];
-                }
-            }
-        }
-    }
-
-    return;
+{ 
 
     data_T data_col[CONFIG_T::filt_width * CONFIG_T::n_chan];
     res_T res_col[CONFIG_T::n_filt];
-    typename CONFIG_T::weight_t row_weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt];
+    typename CONFIG_T::weight_t row_weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan];
     //loop over the output cells, compute each one separately
     
-    start_index = 0;
+    int start_index = 0;
 
     ColLoop:
     for (int out_ind = CONFIG_T::pad_left; out_ind < CONFIG_T::out_width + CONFIG_T::pad_left; out_ind++) {
@@ -116,9 +91,9 @@ void conv_1d_transpose_resource_cl(
         if (out_ind > start_index*CONFIG_T::stride_width + CONFIG_T::filt_width - 1) {
            start_index++;
         }
-        int weight_start = out_ind - CONFIG_T::stride_width*start_index + 1;
+        int weight_start = out_ind - CONFIG_T::stride_width*start_index;
         int cur_filt_width = weight_start / CONFIG_T::stride_width + 1;
-        cur_filt_width = MIN(cur_filt_width, CONFIG_T::n_chan-weight_start);
+        cur_filt_width = MIN(cur_filt_width, CONFIG_T::in_width - start_index);
 
         weights_trim<CONFIG_T>(weights, row_weights, weight_start, cur_filt_width);
         im2col_start_width<data_T, CONFIG_T>(data, data_col, start_index, cur_filt_width);
