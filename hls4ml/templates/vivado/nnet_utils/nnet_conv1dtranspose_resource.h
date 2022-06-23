@@ -7,7 +7,7 @@
 /*
 Implementation comments:
   - have to update weights array as well as data array for each output
-  - could probably be more clever so that weights update less often (unsure of how important this is)
+  - could probably be more clever so that weights update less (unsure of how important this is)
   - both of these arrays are bigger than they need to be, because their size changes
     - could probably trim the size more cleverly
   - have to zero out the excess every time I think
@@ -18,29 +18,30 @@ namespace nnet{
 template<typename CONFIG_T>
 void weights_trim(
     typename CONFIG_T::weight_t weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt],
-    typename CONFIG_T::weight_t row_weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan],
+    typename CONFIG_T::weight_t row_weights[
+        CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan
+    ],
     const int weight_start,
     const int cur_filt_width
 )
 {
+    //Zero out everything first because I'm lazy 
+    for (int idx = 0; idx < CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan; idx++) {
+        row_weights[idx] = 0;
+    }
+
     int row_index = weight_start;
     KernelLoop:
     for (int step = 0; step < cur_filt_width; step++) {
         for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
             for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                row_weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + step * CONFIG_T::n_chan + chan_ind] = 
-                    weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + row_index * CONFIG_T::n_chan + chan_ind];
+                row_weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + 
+                    step * CONFIG_T::n_chan + chan_ind] = 
+                    weights[row_index * CONFIG_T::n_filt * CONFIG_T::n_chan + 
+                        filt_ind * CONFIG_T::n_chan + chan_ind];
             }
         }
         row_index -= CONFIG_T::stride_width;
-    }
-    ZeroLoop:
-    for (int step = cur_filt_width; step < CONFIG_T::filt_width; step++) {
-        for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
-            for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                row_weights[filt_ind * CONFIG_T::filt_width * CONFIG_T::n_chan + step * CONFIG_T::n_chan + chan_ind] = 0;
-            }
-        }
     }
 }
 
@@ -76,17 +77,23 @@ void conv_1d_transpose_resource_cl(
     typename CONFIG_T::weight_t weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan],
     typename CONFIG_T::bias_t   biases[CONFIG_T::n_filt]
 )
-{ 
+{
+    int start_index = 0;
 
     data_T data_col[CONFIG_T::filt_width * CONFIG_T::n_chan];
     res_T res_col[CONFIG_T::n_filt];
-    typename CONFIG_T::weight_t row_weights[CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan];
+    typename CONFIG_T::weight_t row_weights[CONFIG_T::filt_width * CONFIG_T::n_filt * CONFIG_T::n_chan];
     //loop over the output cells, compute each one separately
-    
-    int start_index = 0;
+    std::cout << "weights:" << std::endl;
+    for (int i = 0; i < CONFIG_T::n_filt * CONFIG_T::filt_width * CONFIG_T::n_chan; i++) {
+        std::cout << weights[i] << " ";
+    }
+    std::cout << std::endl;
+    start_index = 0;
 
     ColLoop:
-    for (int out_ind = CONFIG_T::pad_left; out_ind < CONFIG_T::out_width + CONFIG_T::pad_left; out_ind++) {
+    for (int out_ind = CONFIG_T::pad_left; 
+        out_ind < CONFIG_T::out_width + CONFIG_T::pad_left; out_ind++) {
         //corresponds to res_col index out_ind - pad_left
         if (out_ind > start_index*CONFIG_T::stride_width + CONFIG_T::filt_width - 1) {
            start_index++;
@@ -98,7 +105,9 @@ void conv_1d_transpose_resource_cl(
         weights_trim<CONFIG_T>(weights, row_weights, weight_start, cur_filt_width);
         im2col_start_width<data_T, CONFIG_T>(data, data_col, start_index, cur_filt_width);
 
-        dense_resource<data_T, res_T, typename CONFIG_T::mult_config>(data_col, res_col, row_weights, biases);
+        dense_resource<data_T, res_T, typename CONFIG_T::mult_config>(
+            data_col, res_col, row_weights, biases
+        );
 
         for (int j = 0; j < CONFIG_T::n_filt; j++) {
             res[(out_ind-CONFIG_T::pad_left) * CONFIG_T::n_filt + j] = res_col[j];
