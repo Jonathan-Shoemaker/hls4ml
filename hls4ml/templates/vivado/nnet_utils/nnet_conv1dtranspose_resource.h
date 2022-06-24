@@ -19,27 +19,18 @@ template<typename CONFIG_T>
 void weights_trim(
     typename CONFIG_T::weight_t weights[CONFIG_T::filt_width * CONFIG_T::n_chan * CONFIG_T::n_filt],
     typename CONFIG_T::weight_t row_weights[
-        CONFIG_T::n_filt * DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width) 
-            * CONFIG_T::n_chan
+        CONFIG_T::n_filt * CONFIG_T::trfilt_width * CONFIG_T::n_chan
     ],
     const int weight_start,
-    const int cur_filt_width,
-    const int num_buffer
+    const int cur_filt_width
 )
 {
-    //zero out everything first (remove one possible bug)
-    for (int idx = 0; 
-        idx < CONFIG_T::n_filt * DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width) 
-            * CONFIG_T::n_chan; idx++) {
-        row_weights[idx] = 0;
-    }
-
     int row_index = weight_start;
     KernelLoop:
     for (int step = 0; step < cur_filt_width; step++) {
         for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
             for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                row_weights[filt_ind * (cur_filt_width+num_buffer) * CONFIG_T::n_chan + 
+                row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
                     step * CONFIG_T::n_chan + chan_ind] = 
                     weights[row_index * CONFIG_T::n_filt * CONFIG_T::n_chan + 
                         filt_ind * CONFIG_T::n_chan + chan_ind];
@@ -48,24 +39,23 @@ void weights_trim(
         row_index -= CONFIG_T::stride_width;
     }
 
-    // //zero out the one column if needed
-    // for (int step = cur_filt_width; step < cur_filt_width + num_buffer; step++) {
-    //     for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
-    //         for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-    //             row_weights[filt_ind * (cur_filt_width+num_buffer) * CONFIG_T::n_chan + 
-    //                 step * CONFIG_T::n_chan + chan_ind] = 0;
-    //         }
-    //     }
-    // }
+    //zero out the one column if needed
+    for (int step = cur_filt_width; step < CONFIG_T::trfilt_width; step++) {
+        for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
+            for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
+                row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
+                    step * CONFIG_T::n_chan + chan_ind] = 0;
+            }
+        }
+    }
 }
 
 template<class data_T, typename CONFIG_T>
 void im2col_start_width(
     data_T data[CONFIG_T::in_width * CONFIG_T::n_chan],
-    data_T data_col[DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width) * CONFIG_T::n_chan],
+    data_T data_col[CONFIG_T::trfilt_width * CONFIG_T::n_chan],
     const int start_index,
-    const int cur_filt_width,
-    const int num_buffer
+    const int cur_filt_width
 )
 {
     int index = 0;
@@ -77,7 +67,7 @@ void im2col_start_width(
             index++;
         }
     }
-    for (int kernel_col = 0; kernel_col < num_buffer; kernel_col++) {   
+    for (int kernel_col = 0; kernel_col < CONFIG_T::trfilt_width - cur_filt_width; kernel_col++) {   
         for (int channel = 0; channel < CONFIG_T::n_chan; channel++) {
             data_col[index] = 0;
             index++;
@@ -93,15 +83,11 @@ void conv_1d_transpose_resource_cl(
     typename CONFIG_T::bias_t   biases[CONFIG_T::n_filt]
 )
 {
-    //filter width becomes ceiling(input filt width / stride)
-    const int new_filt_width = DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width);
-
-    data_T data_col[DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width) * CONFIG_T::n_chan];
+    data_T data_col[CONFIG_T::trfilt_width * CONFIG_T::n_chan];
     res_T res_col[CONFIG_T::n_filt];
 
     typename CONFIG_T::weight_t row_weights[
-        CONFIG_T::n_filt * DIV_ROUNDUP(CONFIG_T::filt_width, CONFIG_T::stride_width) 
-        * CONFIG_T::n_chan
+        CONFIG_T::n_filt * CONFIG_T::trfilt_width * CONFIG_T::n_chan
     ];
 
     //loop over the output cells, compute each one separately
@@ -118,10 +104,10 @@ void conv_1d_transpose_resource_cl(
         cur_filt_width = MIN(cur_filt_width, CONFIG_T::in_width - start_index);
 
         weights_trim<CONFIG_T>(
-            weights, row_weights, weight_start, cur_filt_width, new_filt_width - cur_filt_width
+            weights, row_weights, weight_start, cur_filt_width
         );
         im2col_start_width<data_T, CONFIG_T>(
-            data, data_col, start_index, cur_filt_width, new_filt_width - cur_filt_width
+            data, data_col, start_index, cur_filt_width
         );
 
         dense_resource<data_T, res_T, typename CONFIG_T::mult_config>(

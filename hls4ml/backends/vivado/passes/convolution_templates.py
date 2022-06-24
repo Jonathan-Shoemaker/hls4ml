@@ -98,6 +98,7 @@ conv1dtranspose_config_template = """struct config{index} : nnet::conv1dtranspos
     static const unsigned out_width = {out_width};
     static const unsigned reuse_factor = {reuse};
     static const unsigned n_zeros = {nzeros};
+    static const unsigned trfilt_width = {trfilt_width};
     static const bool store_weights_in_bram = false;
     static const unsigned strategy = nnet::{strategy};
     static const unsigned min_width = {in_width};
@@ -122,6 +123,8 @@ class Conv1DTransposeConfigTemplate(LayerConfigTemplate):
         params = self._default_config_params(node)
         params['dilation'] = node.get_attr('dilation', 1)
         params['nzeros'] = node.get_weights('weight').nzeros
+        params['trfilt_width'] = (node.get_attr('filt_width') + node.get_attr('stride_width') - 1) \
+             // node.get_attr('stride_width')
 
         params['config_t'] = 'config{}_mult'.format(node.index)
         conv_config = self.template.format(**params)
