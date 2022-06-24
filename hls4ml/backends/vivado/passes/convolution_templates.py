@@ -127,7 +127,8 @@ class Conv1DTransposeConfigTemplate(LayerConfigTemplate):
         conv_config = self.template.format(**params)
 
         mult_params = self._default_config_params(node)
-        mult_params['n_in'] = node.get_attr('n_chan') * node.get_attr('filt_width')
+        mult_params['n_in'] = node.get_attr('n_chan') * \
+            (node.get_attr('filt_width') + node.get_attr('stride_width') - 1) // node.get_attr('stride_width')
         mult_params['n_out'] = node.get_attr('n_filt')
         mult_params['product_type'] = get_backend('vivado').product_type(node.get_input_variable().type.precision, node.get_weights('weight').type.precision)
         mult_config = self.mult_template.format(**mult_params)
