@@ -8,8 +8,6 @@
 Implementation comments:
   - have to update weights array as well as data array for each output
   - could probably be more clever so that weights update less (unsure of how important this is)
-  - both of these arrays are bigger than they need to be, because their size changes
-    - could probably trim the size more cleverly
   - have to zero out the excess every time I think
 */
 
@@ -27,26 +25,23 @@ void weights_trim(
 {
     int row_index = weight_start;
     KernelLoop:
-    for (int step = 0; step < cur_filt_width; step++) {
+    for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
+        #pragma HLS UNROLL 
+        
         for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
             for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
-                    step * CONFIG_T::n_chan + chan_ind] = 
-                    weights[row_index * CONFIG_T::n_filt * CONFIG_T::n_chan + 
-                        filt_ind * CONFIG_T::n_chan + chan_ind];
+                if (step >= cur_filt_width) {
+                    row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
+                        step * CONFIG_T::n_chan + chan_ind] = 0;
+                } else {
+                    row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
+                        step * CONFIG_T::n_chan + chan_ind] = 
+                        weights[row_index * CONFIG_T::n_filt * CONFIG_T::n_chan + 
+                            filt_ind * CONFIG_T::n_chan + chan_ind];
+                }
             }
         }
         row_index -= CONFIG_T::stride_width;
-    }
-
-    //zero out the one column if needed
-    for (int step = cur_filt_width; step < CONFIG_T::trfilt_width; step++) {
-        for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
-            for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
-                    step * CONFIG_T::n_chan + chan_ind] = 0;
-            }
-        }
     }
 }
 
@@ -60,16 +55,16 @@ void im2col_start_width(
 {
     int index = 0;
     KernelLoop:
-    for (int kernel_col = 0; kernel_col < cur_filt_width; kernel_col++) {
+    for (int kernel_col = 0; kernel_col < CONFIG_T::trfilt_width; kernel_col++) {
+        #pragma HLS UNROLL
+
         ChannelLoop:
         for (int channel = 0; channel < CONFIG_T::n_chan; channel++) {
-            data_col[index] =  data[(start_index + kernel_col) * CONFIG_T::n_chan + channel];
-            index++;
-        }
-    }
-    for (int kernel_col = 0; kernel_col < CONFIG_T::trfilt_width - cur_filt_width; kernel_col++) {   
-        for (int channel = 0; channel < CONFIG_T::n_chan; channel++) {
-            data_col[index] = 0;
+            if (kernel_col >= cur_filt_width) {
+                data_col[index] = 0;
+            } else {
+                data_col[index] =  data[(start_index + kernel_col) * CONFIG_T::n_chan + channel];
+            }
             index++;
         }
     }
@@ -85,6 +80,9 @@ void conv_1d_transpose_resource_cl(
 {
     data_T data_col[CONFIG_T::trfilt_width * CONFIG_T::n_chan];
     res_T res_col[CONFIG_T::n_filt];
+
+    #pragma HLS ARRAY_PARTITION variable=data_col complete
+    #pragma HLS ARRAY_PARTITION variable=res_col complete
 
     typename CONFIG_T::weight_t row_weights[
         CONFIG_T::n_filt * CONFIG_T::trfilt_width * CONFIG_T::n_chan
