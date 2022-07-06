@@ -101,6 +101,7 @@ conv1dtranspose_config_template = """struct config{index} : nnet::conv1dtranspos
     static const unsigned trfilt_width = {trfilt_width};
     static const bool store_weights_in_bram = false;
     static const unsigned strategy = nnet::{strategy};
+    static const nnet::conv_implementation implementation = nnet::conv_implementation::{implementation};
     static const unsigned min_width = {in_width};
     static const ap_uint<filt_width> pixels[min_width];
     typedef {accum_t.name} accum_t;
@@ -111,7 +112,7 @@ conv1dtranspose_config_template = """struct config{index} : nnet::conv1dtranspos
 
 conv1dtranspose_function_template = 'nnet::conv_1d_transpose_{data_format}<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
 
-conv1dtranspose_include_list = ['nnet_utils/nnet_conv1dtranspose.h']
+conv1dtranspose_include_list = ['nnet_utils/nnet_conv1dtranspose.h', 'nnet_utils/nnet_conv1dtranspose_stream.h']
 
 class Conv1DTransposeConfigTemplate(LayerConfigTemplate):
     def __init__(self):
