@@ -1,5 +1,5 @@
 from hls4ml.model.optimizer import OptimizerPass
-from hls4ml.model.layers import Conv1D, SeparableConv1D, Conv2D, SeparableConv2D
+from hls4ml.model.layers import Conv1D, SeparableConv1D, Conv2D, SeparableConv2D, Conv1DTranspose
 
 class InsertZeroPaddingBeforeConv1D(OptimizerPass):
     name = 'insert_zero_padding_before_conv1d'
@@ -40,6 +40,50 @@ class InsertZeroPaddingBeforeConv1D(OptimizerPass):
         node.set_attr('in_width', out_width)
 
         # Insert new ZeroPadding1D node above Conv1D
+        padding_layer = model.make_node('ZeroPadding1D', 'zp1d_' + node.name, attrs, node.inputs.copy())
+        padding_layer.get_output_variable().type.precision = node.get_input_variable().type.precision
+        model.insert_node(padding_layer)
+
+        return True
+
+class InsertZeroPaddingBeforeConv1DTranspose(OptimizerPass):
+    name = 'insert_zero_padding_before_conv1dtranspose'
+    
+    def match(self, node):
+        is_match = isinstance(node, (Conv1DTranspose)) and \
+            node.get_attr('padding') == 'same' and \
+            node.get_attr('filt_width') != 1
+        return is_match
+
+    def transform(self, model, node):
+        if model.config.get_config_value('IOType') != 'io_stream':
+            return False
+        
+        # Get the padding parameters from Conv1D layer
+        pad_left = node.get_attr('pad_left')
+        pad_right = node.get_attr('pad_right')
+        convtr_out_width = node.get_attr('out_width')
+        in_width = node.get_attr('in_width')
+        stride_width = node.get_attr('stride_width')
+
+        add_right = (convtr_out_width + pad_left)//stride_width - (in_width-1)
+
+        out_width = in_width + add_right
+
+        attrs = {
+            'pad_left': 0,
+            'pad_right': add_right,
+            'in_width': in_width,
+            'out_width': out_width,
+            'n_chan': node.get_attr('n_chan'),
+            'data_format': node.get_attr('data_format', 'channels_last')
+        }
+
+        # Switch Conv1DTranspose to be 'valid'. I think this is wrong
+        node.set_attr('padding', 'valid')
+        node.set_attr('in_width', out_width)
+
+        # Insert new ZeroPadding1D node above Conv1DTranspose
         padding_layer = model.make_node('ZeroPadding1D', 'zp1d_' + node.name, attrs, node.inputs.copy())
         padding_layer.get_output_variable().type.precision = node.get_input_variable().type.precision
         model.insert_node(padding_layer)

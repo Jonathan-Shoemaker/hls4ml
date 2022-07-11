@@ -18,28 +18,23 @@ void weights_trim(
 {
     int row_indices[CONFIG_T::trfilt_width];
     for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
+        #pragma HLS PIPELINE
         row_indices[step] = weight_start - step * CONFIG_T::stride_width;
     }
 
-    KernelLoop:
-    for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
-        #pragma HLS UNROLL 
+    WeightsLoop: for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
         #pragma HLS PIPELINE
-        
         for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
-            #pragma HLS UNROLL
-            #pragma HLS PIPELINE
             for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                #pragma HLS UNROLL
-                #pragma HLS PIPELINE
+                #pragma HLS LOOP_FLATTEN
                 if (row_indices[step] >= CONFIG_T::filt_width) {
-                    row_weights[step * CONFIG_T::n_chan * CONFIG_T::n_filt + 
-                        chan_ind * CONFIG_T::n_filt + filt_ind] = 0;
+                    row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
+                        step * CONFIG_T::n_chan + chan_ind] = 0;
                 } else {
-                    row_weights[step * CONFIG_T::n_chan * CONFIG_T::n_filt + 
-                        chan_ind * CONFIG_T::n_filt + filt_ind] = 
+                    row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
+                        step * CONFIG_T::n_chan + chan_ind] = 
                         weights[row_indices[step] * CONFIG_T::n_filt * CONFIG_T::n_chan + 
-                        filt_ind * CONFIG_T::n_chan + chan_ind];
+                            filt_ind * CONFIG_T::n_chan + chan_ind];
                 }
             }
         }
@@ -96,7 +91,6 @@ void compute_output_buffer_tr_1d(
     static typename CONFIG_T::weight_t row_weights[
         CONFIG_T::n_filt * CONFIG_T::trfilt_width * CONFIG_T::n_chan
     ];
-    #pragma HLS ARRAY_PARTITION variable=row_weights complete
 
     typename res_T::value_type res_out[CONFIG_T::n_filt];
     #pragma HLS ARRAY_PARTITION variable=res_out complete dim = 0
@@ -107,16 +101,17 @@ void compute_output_buffer_tr_1d(
     // Add pixel to buffer
     nnet::kernel_shift_tr_1d<data_T, CONFIG_T>(in_elem, kernel_data);
 
-    //always do stride number of multiplications
-    for (int idx = 0; idx < CONFIG_T::stride_width; idx++) {
-        #pragma HLS INLINE region
+    int weight_start = CONFIG_T::stride_width * (CONFIG_T::trfilt_width-1);
 
-        int weight_start = idx + CONFIG_T::stride_width * (CONFIG_T::trfilt_width-1);
+    //always do stride number of multiplications
+    DenseLoop: for (int idx = 0; idx < CONFIG_T::stride_width; idx++) {
+        #pragma HLS UNROLL
         //load in the weights for this multiplication
         weights_trim<CONFIG_T>(
             weights, row_weights, weight_start
         );
 
+        // #pragma HLS INLINE region
         // Dense multiply
         if (CONFIG_T::strategy == nnet::latency) {
             dense_latency<typename data_T::value_type, typename res_T::value_type, typename CONFIG_T::mult_config>(
@@ -132,14 +127,15 @@ void compute_output_buffer_tr_1d(
                 #pragma HLS UNROLL
                 res_pack[i_ic] = res_out[i_ic];
             }
+            res_stream.write(res_pack);
         }
         // Write output to stream when output ready
-        res_stream.write(res_pack);
         oX++;
+        weight_start++;
     }
-    
 
-    // Counter Housekeeping
+    // static var housekeeping
+    // might need to zero the kernel? unsure...
     if (pX + 1 == CONFIG_T::in_width)  // done with all of the inputs
     {
         pX = 0;
@@ -178,11 +174,9 @@ void conv_1d_transpose_cl(
         case conv_implementation::linebuffer:
             conv_1d_transpose_buffer_cl<data_T, res_T, CONFIG_T>(data, res, weights, biases);
             break;
-        case conv_implementation::encoded:
-            //do something
-            break;
     }
 }
 
 }
 #endif
+//NEED TO PAD INPUT OR CLEAR KERNEL
