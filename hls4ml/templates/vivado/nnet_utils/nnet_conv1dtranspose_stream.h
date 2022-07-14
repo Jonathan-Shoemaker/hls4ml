@@ -16,17 +16,26 @@ void weights_trim(
     const int weight_start
 )
 {
+    #pragma HLS INLINE
+    #pragma HLS PIPELINE II = 1
+
     int row_indices[CONFIG_T::trfilt_width];
     for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
-        #pragma HLS PIPELINE
+        // #pragma HLS PIPELINE
+        #pragma HLS UNROLL
         row_indices[step] = weight_start - step * CONFIG_T::stride_width;
     }
 
     WeightsLoop: for (int step = 0; step < CONFIG_T::trfilt_width; step++) {
+        #pragma HLS UNROLL 
         #pragma HLS PIPELINE
         for (int filt_ind = 0; filt_ind < CONFIG_T::n_filt; filt_ind++) {
+            #pragma HLS UNROLL 
+            #pragma HLS PIPELINE
             for (int chan_ind = 0; chan_ind < CONFIG_T::n_chan; chan_ind++) {
-                #pragma HLS LOOP_FLATTEN
+                // #pragma HLS LOOP_FLATTEN
+                #pragma HLS UNROLL 
+                #pragma HLS PIPELINE
                 if (row_indices[step] >= CONFIG_T::filt_width) {
                     row_weights[filt_ind * CONFIG_T::trfilt_width * CONFIG_T::n_chan + 
                         step * CONFIG_T::n_chan + chan_ind] = 0;
@@ -39,6 +48,8 @@ void weights_trim(
             }
         }
     }
+    //try to split if else into two loops
+    //pre-compute
 }
 
 template <class data_T, typename CONFIG_T>
@@ -46,7 +57,7 @@ void kernel_shift_tr_1d(
     const data_T& in_elem,
     typename data_T::value_type kernel_window[CONFIG_T::trfilt_width * CONFIG_T::n_chan]
 ) {
-    #pragma HLS inline
+    #pragma HLS INLINE
     #pragma HLS PIPELINE II = 1
     
     // Shift kernel_window by one step to the left (manual shift operation)
@@ -88,7 +99,7 @@ void compute_output_buffer_tr_1d(
     static typename data_T::value_type kernel_data[CONFIG_T::trfilt_width * CONFIG_T::n_chan];
     #pragma HLS ARRAY_PARTITION variable=kernel_data complete
 
-    static typename CONFIG_T::weight_t row_weights[
+    typename CONFIG_T::weight_t row_weights[
         CONFIG_T::n_filt * CONFIG_T::trfilt_width * CONFIG_T::n_chan
     ];
 
@@ -104,30 +115,37 @@ void compute_output_buffer_tr_1d(
     int weight_start = CONFIG_T::stride_width * (CONFIG_T::trfilt_width-1);
 
     //always do stride number of multiplications
-    DenseLoop: for (int idx = 0; idx < CONFIG_T::stride_width; idx++) {
-        #pragma HLS UNROLL
-        //load in the weights for this multiplication
-        weights_trim<CONFIG_T>(
-            weights, row_weights, weight_start
-        );
-
+    StrideLoop: for (int idx = 0; idx < CONFIG_T::stride_width; idx++) {
+        // #pragma HLS DATAFLOW
+        // #pragma HLS PIPELINE
         // #pragma HLS INLINE region
-        // Dense multiply
-        if (CONFIG_T::strategy == nnet::latency) {
-            dense_latency<typename data_T::value_type, typename res_T::value_type, typename CONFIG_T::mult_config>(
-                kernel_data, res_out, row_weights, biases);
-        } else {
-            dense_resource<typename data_T::value_type, typename res_T::value_type, typename CONFIG_T::mult_config>(
-                kernel_data, res_out, row_weights, biases);
+        //load in the weights for this multiplication
+        WeightsRegion: {
+            weights_trim<CONFIG_T>(
+                weights, row_weights, weight_start
+            );
         }
 
-        // Pack output
-        if (oX >= CONFIG_T::pad_left && oX < CONFIG_T::pad_left + CONFIG_T::out_width) {
-            CastLoop: for (unsigned i_ic = 0; i_ic < CONFIG_T::n_filt; i_ic++) {
-                #pragma HLS UNROLL
-                res_pack[i_ic] = res_out[i_ic];
+        MultRegion: {
+            // Dense multiply
+            if (CONFIG_T::strategy == nnet::latency) {
+                dense_latency<typename data_T::value_type, typename res_T::value_type, typename CONFIG_T::mult_config>(
+                    kernel_data, res_out, row_weights, biases);
+            } else {
+                dense_resource<typename data_T::value_type, typename res_T::value_type, typename CONFIG_T::mult_config>(
+                    kernel_data, res_out, row_weights, biases);
             }
-            res_stream.write(res_pack);
+        }
+
+        PackRegion: {
+            // Pack output
+            if (oX >= CONFIG_T::pad_left && oX < CONFIG_T::pad_left + CONFIG_T::out_width) {
+                CastLoop: for (unsigned i_ic = 0; i_ic < CONFIG_T::n_filt; i_ic++) {
+                    #pragma HLS UNROLL
+                    res_pack[i_ic] = res_out[i_ic];
+                }
+                res_stream.write(res_pack);
+            }
         }
         // Write output to stream when output ready
         oX++;
@@ -154,9 +172,9 @@ void conv_1d_transpose_buffer_cl(
 {
     ReadInputWidth: for (unsigned i_iw = 0; i_iw < CONFIG_T::in_width; i_iw++) {
         #pragma HLS LOOP_FLATTEN
-        if (CONFIG_T::strategy == nnet::latency) {
-            #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
-        }
+        // if (CONFIG_T::strategy == nnet::latency) {
+        //     #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
+        // }
         compute_output_buffer_tr_1d<data_T, res_T, CONFIG_T>(data.read(), res, weights, biases);
     }
 }
