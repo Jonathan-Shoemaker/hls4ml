@@ -1,10 +1,10 @@
 from hls4ml.model.optimizer import OptimizerPass
-from hls4ml.model.layers import Conv1D, SeparableConv1D, Conv2D, SeparableConv2D
+from hls4ml.model.layers import Conv1D, SeparableConv1D, Conv2D, SeparableConv2D, Conv2DTranspose
 
 class GenerateConvStreamingInstructions(OptimizerPass):
     ''' Generates the instructions for streaming implementation of CNNs '''
     def match(self, node):
-        return isinstance(node, (Conv1D, SeparableConv1D, Conv2D, SeparableConv2D))
+        return isinstance(node, (Conv1D, SeparableConv1D, Conv2D, SeparableConv2D, Conv2DTranspose))
 
     def transform(self, model, node):
         node_class = node.__class__.__name__
@@ -30,12 +30,16 @@ class GenerateConvStreamingInstructions(OptimizerPass):
             node.set_attr('instructions', '0')
 
     def _generate_2d_instructions(self, node):
+        kernel_height = node.get_attr('filt_height')
+        if isinstance(node, Conv2DTranspose): # set to trfilt_height instead
+            kernel_height = (node.get_attr('filt_height') + node.get_attr('stride_height') - 1) \
+                // node.get_attr('stride_height')
         if node.model.config.get_config_value('IOType') == 'io_stream':
             min_h, min_w, instructions = node.model.config.backend.compute_conv2d_instructions(
                 node.get_input_variable().shape[0],
                 node.get_input_variable().shape[1],
                 node.get_input_variable().shape[2],
-                node.get_attr('filt_height'),
+                kernel_height,
                 node.get_attr('stride_height'))
             instructions_str = ','.join(str(i) for i in instructions)
             node.set_attr('min_height', min_h)
