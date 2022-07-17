@@ -60,7 +60,8 @@ void shift_line_buffer_tr(const data_T& in_elem,
         // Shift the shift buffer into the line buffer
         LineBufferShift: for (unsigned i_ih = 1; i_ih < CONFIG_T::trfilt_height; i_ih++) {
             #pragma HLS UNROLL
-            typename data_T::value_type pop_elem = line_buffer[i_ih - 1][i_ic].shift(shift_buffer[CONFIG_T::trfilt_height - i_ih][i_ic]); // Shift the line buffer, return the popped pixel
+            typename data_T::value_type pop_elem = 
+                line_buffer[i_ih - 1][i_ic].shift(shift_buffer[CONFIG_T::trfilt_height - i_ih][i_ic]); // Shift the line buffer, return the popped pixel
             shift_buffer[CONFIG_T::trfilt_height - i_ih - 1][i_ic] = pop_elem; // Popped element placed back into shift_buffer, one row up.
         }
     }
@@ -147,6 +148,10 @@ void compute_output_buffer_tr_2d(
     typename res_T::value_type res_out[CONFIG_T::n_filt];
     #pragma HLS ARRAY_PARTITION variable=res_out complete dim = 0
 
+    static typename res_T::value_type output_buffer[
+        CONFIG_T::in_width*CONFIG_T::stride_width*CONFIG_T::stride_height*CONFIG_T::n_filt
+    ];
+
     res_T res_pack;
     #pragma HLS DATA_PACK variable = res_pack
 
@@ -173,13 +178,11 @@ void compute_output_buffer_tr_2d(
                 );
             }
 
-            if (pX*CONFIG_T::stride_width + w_idx >= CONFIG_T::pad_left && pX*CONFIG_T::stride_width + w_idx < CONFIG_T::pad_left + CONFIG_T::out_width &&
-                pY*CONFIG_T::stride_height + h_idx >= CONFIG_T::pad_top && pY*CONFIG_T::stride_height +h_idx < CONFIG_T::pad_top + CONFIG_T::out_height) {
-                CastLoop: for (unsigned i_ic = 0; i_ic < CONFIG_T::n_filt; i_ic++) {
-                    #pragma HLS UNROLL
-                    res_pack[i_ic] = res_out[i_ic];
-                }
-                res_stream.write(res_pack);
+            BufferOutputLoop: for (unsigned i_ic = 0; i_ic < CONFIG_T::n_filt; i_ic++) {
+                output_buffer[
+                    (pX*CONFIG_T::stride_width+w_idx)*CONFIG_T::stride_height*CONFIG_T::n_filt + 
+                    h_idx*CONFIG_T::n_filt + i_ic
+                ] = res_out[i_ic];
             }
 
             weight_x_start++;
@@ -191,6 +194,23 @@ void compute_output_buffer_tr_2d(
     if (pX + 1 == CONFIG_T::in_width) //HAVE TO THINK ABOUT oX, oY STUFF. NOT AS EASY AS INCREMENTING
     {
         pX = 0;
+        //write all of the buffered output
+        for (int h_idx = 0; h_idx < CONFIG_T::stride_height; h_idx++) {
+            if (pY*CONFIG_T::stride_height + h_idx >= CONFIG_T::pad_top && 
+                pY*CONFIG_T::stride_height +h_idx < CONFIG_T::pad_top + CONFIG_T::out_height) {
+                for (int oX = CONFIG_T::pad_left; oX < CONFIG_T::pad_left + CONFIG_T::out_width; oX++) {
+                    CastLoop: for (unsigned i_ic = 0; i_ic < CONFIG_T::n_filt; i_ic++) {
+                        #pragma HLS UNROLL
+                        res_pack[i_ic] = output_buffer[
+                            oX*CONFIG_T::stride_height*CONFIG_T::n_filt  + 
+                            h_idx*CONFIG_T::n_filt + i_ic
+                        ];
+                    }
+                    res_stream.write(res_pack);
+                }
+            }
+        }
+
         if (pY + 1 == CONFIG_T::in_height) {
             pY = 0;
         } else {
