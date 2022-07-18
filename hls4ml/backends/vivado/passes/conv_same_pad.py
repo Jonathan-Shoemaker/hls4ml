@@ -65,13 +65,15 @@ class InsertZeroPaddingBeforeConv1DTranspose(OptimizerPass):
         convtr_out_width = node.get_attr('out_width')
         in_width = node.get_attr('in_width')
         stride_width = node.get_attr('stride_width')
+        trfilt_width = (node.get_attr('filt_width') + node.get_attr('stride_width') - 1) \
+             // node.get_attr('stride_width')
 
         add_right = (convtr_out_width + pad_left)//stride_width - (in_width-1)
 
-        out_width = in_width + add_right
+        out_width = in_width + add_right + trfilt_width-1
 
         attrs = {
-            'pad_left': 0,
+            'pad_left': trfilt_width-1,
             'pad_right': add_right,
             'in_width': in_width,
             'out_width': out_width,
@@ -82,6 +84,7 @@ class InsertZeroPaddingBeforeConv1DTranspose(OptimizerPass):
         # Switch Conv1DTranspose to be 'valid'. I think this is wrong
         node.set_attr('padding', 'valid')
         node.set_attr('in_width', out_width)
+        node.set_attr('pad_left', pad_left + (trfilt_width-1)*stride_width)
 
         # Insert new ZeroPadding1D node above Conv1DTranspose
         padding_layer = model.make_node('ZeroPadding1D', 'zp1d_' + node.name, attrs, node.inputs.copy())

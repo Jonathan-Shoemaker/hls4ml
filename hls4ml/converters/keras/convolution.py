@@ -38,7 +38,7 @@ def parse_conv1d_layer(keras_layer, input_names, input_shapes, data_reader, conf
     return layer, output_shape
 
 @keras_handler('Conv1DTranspose')
-def parse_cond1dtranspose_layer(keras_layer, input_names, input_shapes, data_reader, config):
+def parse_conv1dtranspose_layer(keras_layer, input_names, input_shapes, data_reader, config):
     assert('Conv1DTranspose' in keras_layer['class_name'])
     layer = parse_default_keras_layer(keras_layer, input_names)
 

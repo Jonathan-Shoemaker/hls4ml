@@ -102,13 +102,14 @@ conv1dtranspose_config_template = """struct config{index} : nnet::conv1dtranspos
     static const bool store_weights_in_bram = false;
     static const unsigned strategy = nnet::{strategy};
     static const nnet::conv_implementation implementation = nnet::conv_implementation::{implementation};
-    static const unsigned min_width = {in_width};
+    static const unsigned min_width = {min_width};
     static const ap_uint<filt_width> pixels[min_width];
     typedef {accum_t.name} accum_t;
     typedef {bias_t.name} bias_t;
     typedef {weight_t.name} weight_t;
     typedef {config_t} mult_config;
-}};\n"""
+}};
+const ap_uint<config{index}::filt_width> config{index}::pixels[] = {{{instructions}}};\n"""
 
 conv1dtranspose_function_template = 'nnet::conv_1d_transpose_{data_format}<{input_t}, {output_t}, {config}>({input}, {output}, {w}, {b});'
 
