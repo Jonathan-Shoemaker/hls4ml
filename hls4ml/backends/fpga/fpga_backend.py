@@ -79,6 +79,22 @@ class FPGABackend(Backend):
             n_out = layer.get_attr('n_out')
             return n_in, n_out
 
+        if 'Conv1DTranspose' in layer.class_name:
+            trfilt_width = (layer.get_attr('filt_width') + layer.get_attr('stride_width') - 1) \
+                // layer.get_attr('stride_width')
+            n_in = layer.get_attr('n_chan') * trfilt_width
+            n_out = layer.get_attr('n_filt')
+            return n_in, n_out
+
+        if 'Conv2DTranspose' in layer.class_name:
+            trfilt_width = (layer.get_attr('filt_width') + layer.get_attr('stride_width') - 1) \
+                // layer.get_attr('stride_width')
+            trfilt_height = (layer.get_attr('filt_height') + layer.get_attr('stride_height') - 1) \
+                // layer.get_attr('stride_height')
+            n_in = layer.get_attr('n_chan') * trfilt_height * trfilt_width
+            n_out = layer.get_attr('n_filt')
+            return n_in, n_out
+
         if 'Conv1D' in layer.class_name:
             n_in = layer.get_attr('n_chan') * layer.get_attr('filt_width')
             n_out = layer.get_attr('n_filt')
